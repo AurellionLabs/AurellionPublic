@@ -80,6 +80,7 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
     error InsufficientBalance();
     error ExceedsCustodyAmount();
     error ExceedsNodeSellableAmount();
+    error NodeHashRequired();
     error NoCustodian();
     error DifferentCustodian(); // DEPRECATED: multi-custodian model now allows different minters
     error CannotRedeemOwnCustody();
@@ -558,12 +559,12 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
 
     /**
      * @notice Batch mint tokens (owner only)
-     * @dev C-02: Accepts optional nodeHash to attribute sellable amounts.
-     *      Pass bytes32(0) to mint without node attribution.
+     * @dev Requires valid nodeHash to attribute sellable amounts.
+     *      Does not establish custody.
      * @param to Recipient address
      * @param ids Token IDs to mint
      * @param amounts Amounts per token ID
-     * @param nodeHash Node to attribute sellable amounts to (bytes32(0) = none)
+     * @param nodeHash Valid node to attribute sellable amounts to
      * @param data Additional data for receiver
      */
     function mintBatch(
@@ -573,12 +574,16 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
         bytes32 nodeHash,
         bytes memory data
     ) external onlyOwner {
+        if (nodeHash == bytes32(0)) revert NodeHashRequired();
+
+        DiamondStorage.AppStorage storage s = DiamondStorage.appStorage();
+        DiamondStorage.Node storage node = s.nodes[nodeHash];
+        if (!node.active || !node.validNode) revert InvalidNode();
+
         _mintBatch(to, ids, amounts, data);
-        if (nodeHash != bytes32(0)) {
-            DiamondStorage.AppStorage storage s = DiamondStorage.appStorage();
-            for (uint256 i = 0; i < ids.length; i++) {
-                _creditOwnerNodeSellable(s, to, ids[i], nodeHash, amounts[i]);
-            }
+
+        for (uint256 i = 0; i < ids.length; i++) {
+            _creditOwnerNodeSellable(s, to, ids[i], nodeHash, amounts[i]);
         }
     }
 
