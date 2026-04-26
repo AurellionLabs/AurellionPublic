@@ -456,6 +456,9 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
         s.tokenNodeCustodyAmounts[tokenId][nodeHash] -= amount;
         s.tokenCustodyAmount[tokenId] -= amount;
         s.ownerNodeSellableAmounts[msg.sender][tokenId][nodeHash] -= amount;
+        if (s.ownerNodeSellableAmounts[msg.sender][tokenId][nodeHash] == 0) {
+            _removeOwnerTrackedSellableNode(s, msg.sender, tokenId, nodeHash);
+        }
 
         emit CustodyReleased(tokenId, custodian, amount, msg.sender);
     }
@@ -915,6 +918,42 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
         s.ownerNodeSellableAmounts[owner][tokenId][nodeHash] += amount;
     }
 
+    function _removeOwnerTrackedSellableNodeAt(
+        DiamondStorage.AppStorage storage s,
+        address owner,
+        uint256 tokenId,
+        uint256 index
+    ) internal {
+        bytes32[] storage trackedNodes = s.ownerTokenSellableNodes[owner][tokenId];
+        uint256 lastIndex = trackedNodes.length - 1;
+        bytes32 nodeHash = trackedNodes[index];
+
+        delete s.ownerTokenHasSellableNode[owner][tokenId][nodeHash];
+
+        if (index != lastIndex) {
+            trackedNodes[index] = trackedNodes[lastIndex];
+        }
+        trackedNodes.pop();
+    }
+
+    function _removeOwnerTrackedSellableNode(
+        DiamondStorage.AppStorage storage s,
+        address owner,
+        uint256 tokenId,
+        bytes32 nodeHash
+    ) internal {
+        bytes32[] storage trackedNodes = s.ownerTokenSellableNodes[owner][tokenId];
+        uint256 length = trackedNodes.length;
+        for (uint256 i = 0; i < length; i++) {
+            if (trackedNodes[i] == nodeHash) {
+                _removeOwnerTrackedSellableNodeAt(s, owner, tokenId, i);
+                return;
+            }
+        }
+
+        delete s.ownerTokenHasSellableNode[owner][tokenId][nodeHash];
+    }
+
     function _moveOwnerNodeSellable(
         DiamondStorage.AppStorage storage s,
         address from,
@@ -929,13 +968,23 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
         bytes32[] storage trackedNodes = s.ownerTokenSellableNodes[from][tokenId];
         uint256 remaining = amount;
 
-        for (uint256 i = 0; i < trackedNodes.length && remaining > 0; i++) {
+        uint256 i = 0;
+        while (i < trackedNodes.length && remaining > 0) {
             bytes32 nodeHash = trackedNodes[i];
             uint256 nodeAmount = s.ownerNodeSellableAmounts[from][tokenId][nodeHash];
-            if (nodeAmount == 0) continue;
+            if (nodeAmount == 0) {
+                _removeOwnerTrackedSellableNodeAt(s, from, tokenId, i);
+                continue;
+            }
 
             uint256 moved = nodeAmount > remaining ? remaining : nodeAmount;
-            s.ownerNodeSellableAmounts[from][tokenId][nodeHash] -= moved;
+            uint256 updatedAmount = nodeAmount - moved;
+            s.ownerNodeSellableAmounts[from][tokenId][nodeHash] = updatedAmount;
+            if (updatedAmount == 0) {
+                _removeOwnerTrackedSellableNodeAt(s, from, tokenId, i);
+            } else {
+                i++;
+            }
             _creditOwnerNodeSellable(s, to, tokenId, nodeHash, moved);
             remaining -= moved;
         }
@@ -952,13 +1001,23 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
         bytes32[] storage trackedNodes = s.ownerTokenSellableNodes[owner][tokenId];
         uint256 remaining = amount;
 
-        for (uint256 i = 0; i < trackedNodes.length && remaining > 0; i++) {
+        uint256 i = 0;
+        while (i < trackedNodes.length && remaining > 0) {
             bytes32 nodeHash = trackedNodes[i];
             uint256 nodeAmount = s.ownerNodeSellableAmounts[owner][tokenId][nodeHash];
-            if (nodeAmount == 0) continue;
+            if (nodeAmount == 0) {
+                _removeOwnerTrackedSellableNodeAt(s, owner, tokenId, i);
+                continue;
+            }
 
             uint256 debited = nodeAmount > remaining ? remaining : nodeAmount;
-            s.ownerNodeSellableAmounts[owner][tokenId][nodeHash] -= debited;
+            uint256 updatedAmount = nodeAmount - debited;
+            s.ownerNodeSellableAmounts[owner][tokenId][nodeHash] = updatedAmount;
+            if (updatedAmount == 0) {
+                _removeOwnerTrackedSellableNodeAt(s, owner, tokenId, i);
+            } else {
+                i++;
+            }
             remaining -= debited;
         }
 

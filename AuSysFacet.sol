@@ -1214,6 +1214,42 @@ contract AuSysFacet is DiamondReentrancyGuard {
         s.ownerNodeSellableAmounts[owner][tokenId][nodeHash] += amount;
     }
 
+    function _removeOwnerTrackedSellableNodeAt(
+        DiamondStorage.AppStorage storage s,
+        address owner,
+        uint256 tokenId,
+        uint256 index
+    ) internal {
+        bytes32[] storage trackedNodes = s.ownerTokenSellableNodes[owner][tokenId];
+        uint256 lastIndex = trackedNodes.length - 1;
+        bytes32 nodeHash = trackedNodes[index];
+
+        delete s.ownerTokenHasSellableNode[owner][tokenId][nodeHash];
+
+        if (index != lastIndex) {
+            trackedNodes[index] = trackedNodes[lastIndex];
+        }
+        trackedNodes.pop();
+    }
+
+    function _removeOwnerTrackedSellableNode(
+        DiamondStorage.AppStorage storage s,
+        address owner,
+        uint256 tokenId,
+        bytes32 nodeHash
+    ) internal {
+        bytes32[] storage trackedNodes = s.ownerTokenSellableNodes[owner][tokenId];
+        uint256 length = trackedNodes.length;
+        for (uint256 i = 0; i < length; i++) {
+            if (trackedNodes[i] == nodeHash) {
+                _removeOwnerTrackedSellableNodeAt(s, owner, tokenId, i);
+                return;
+            }
+        }
+
+        delete s.ownerTokenHasSellableNode[owner][tokenId][nodeHash];
+    }
+
     function _debitOwnerSellableForEscrow(
         DiamondStorage.AppStorage storage s,
         bytes32 orderId,
@@ -1230,6 +1266,9 @@ contract AuSysFacet is DiamondReentrancyGuard {
             uint256 nodeAmount = s.ownerNodeSellableAmounts[owner][tokenId][pinNode];
             if (nodeAmount < amount) revert ExceedsNodeSellableAmount();
             s.ownerNodeSellableAmounts[owner][tokenId][pinNode] -= amount;
+            if (s.ownerNodeSellableAmounts[owner][tokenId][pinNode] == 0) {
+                _removeOwnerTrackedSellableNode(s, owner, tokenId, pinNode);
+            }
             remaining = 0;
 
             if (!s.ausysOrderEscrowNodeSeen[orderId][pinNode]) {
@@ -1241,13 +1280,23 @@ contract AuSysFacet is DiamondReentrancyGuard {
             // Legacy/fallback: spread across tracked nodes in registration order.
             // Only used for non-node (external token) orders or legacy callers.
             bytes32[] storage trackedNodes = s.ownerTokenSellableNodes[owner][tokenId];
-            for (uint256 i = 0; i < trackedNodes.length && remaining > 0; i++) {
+            uint256 i = 0;
+            while (i < trackedNodes.length && remaining > 0) {
                 bytes32 nodeHash = trackedNodes[i];
                 uint256 nodeAmount = s.ownerNodeSellableAmounts[owner][tokenId][nodeHash];
-                if (nodeAmount == 0) continue;
+                if (nodeAmount == 0) {
+                    _removeOwnerTrackedSellableNodeAt(s, owner, tokenId, i);
+                    continue;
+                }
 
                 uint256 debited = nodeAmount > remaining ? remaining : nodeAmount;
-                s.ownerNodeSellableAmounts[owner][tokenId][nodeHash] -= debited;
+                uint256 updatedAmount = nodeAmount - debited;
+                s.ownerNodeSellableAmounts[owner][tokenId][nodeHash] = updatedAmount;
+                if (updatedAmount == 0) {
+                    _removeOwnerTrackedSellableNodeAt(s, owner, tokenId, i);
+                } else {
+                    i++;
+                }
                 remaining -= debited;
 
                 if (!s.ausysOrderEscrowNodeSeen[orderId][nodeHash]) {
