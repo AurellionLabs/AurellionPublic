@@ -133,6 +133,10 @@ library LibDiamond {
                 oldFacetAddress != address(0),
                 'LibDiamond: Selector not found'
             );
+            require(
+                oldFacetAddress != _facetAddress,
+                'LibDiamond: Replace facet address is same as old facet address'
+            );
             // replace the facet address
             ds.selectorToFacetAndPosition[selector].facetAddr = _facetAddress;
             // remove the selector from the old facet
