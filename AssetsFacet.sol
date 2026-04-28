@@ -715,7 +715,7 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
         string memory _name,
         string memory _assetClass,
         string[] memory _attributes
-    ) external returns (bytes32 assetHash) {
+    ) external onlyOwner returns (bytes32 assetHash) {
         DiamondStorage.AppStorage storage s = DiamondStorage.appStorage();
         require(s.supportedClasses[_assetClass], 'Class not supported');
 
