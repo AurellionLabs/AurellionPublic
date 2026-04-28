@@ -1192,9 +1192,23 @@ contract AuSysFacet is DiamondReentrancyGuard {
         bytes32 nodeHash,
         uint256 quantity
     ) internal {
+        _trackNodeCustodyToken(s, nodeHash, tokenId);
         s.tokenCustodianAmounts[tokenId][nodeOwner] += quantity;
         s.tokenNodeCustodyAmounts[tokenId][nodeHash] += quantity;
         // tokenCustodyAmount (global total) is unchanged: custody transferred, not created.
+    }
+
+    function _trackNodeCustodyToken(
+        DiamondStorage.AppStorage storage s,
+        bytes32 nodeHash,
+        uint256 tokenId
+    ) internal {
+        if (nodeHash == bytes32(0) || s.nodeHasCustodyToken[nodeHash][tokenId]) {
+            return;
+        }
+
+        s.nodeHasCustodyToken[nodeHash][tokenId] = true;
+        s.nodeCustodyTokenIds[nodeHash].push(tokenId);
     }
 
     function _creditOwnerNodeSellable(
