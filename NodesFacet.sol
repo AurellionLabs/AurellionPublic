@@ -718,6 +718,9 @@ contract NodesFacet is Initializable, DiamondReentrancyGuard {
         // Update internal balance
         s.nodeTokenBalances[_node][_tokenId] += _amount;
         s.ownerNodeSellableAmounts[msg.sender][_tokenId][_node] -= _amount;
+        if (s.ownerNodeSellableAmounts[msg.sender][_tokenId][_node] == 0) {
+            _removeOwnerTrackedSellableNode(s, msg.sender, _tokenId, _node);
+        }
         
         // Track token ID if new
         if (!s.nodeHasToken[_node][_tokenId]) {
@@ -810,6 +813,29 @@ contract NodesFacet is Initializable, DiamondReentrancyGuard {
         }
 
         s.ownerNodeSellableAmounts[owner][tokenId][nodeHash] += amount;
+    }
+
+    function _removeOwnerTrackedSellableNode(
+        DiamondStorage.AppStorage storage s,
+        address owner,
+        uint256 tokenId,
+        bytes32 nodeHash
+    ) internal {
+        bytes32[] storage trackedNodes = s.ownerTokenSellableNodes[owner][tokenId];
+        uint256 length = trackedNodes.length;
+        for (uint256 i = 0; i < length; i++) {
+            if (trackedNodes[i] == nodeHash) {
+                uint256 lastIndex = length - 1;
+                delete s.ownerTokenHasSellableNode[owner][tokenId][nodeHash];
+                if (i != lastIndex) {
+                    trackedNodes[i] = trackedNodes[lastIndex];
+                }
+                trackedNodes.pop();
+                return;
+            }
+        }
+
+        delete s.ownerTokenHasSellableNode[owner][tokenId][nodeHash];
     }
 
     function _trackNodeCustodyToken(

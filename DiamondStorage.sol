@@ -252,7 +252,7 @@ library DiamondStorage {
         // Wallet-held, node-attributed sellable amounts: owner => tokenId => nodeHash => amount
         // This preserves a canonical split for holders with balances linked to multiple nodes.
         mapping(address => mapping(uint256 => mapping(bytes32 => uint256))) ownerNodeSellableAmounts;
-        // Enumerates node hashes that have ever had sellable allocation for a given owner/token.
+        // Enumerates node hashes that currently have sellable allocation for a given owner/token.
         mapping(address => mapping(uint256 => bytes32[])) ownerTokenSellableNodes;
         mapping(address => mapping(uint256 => mapping(bytes32 => bool))) ownerTokenHasSellableNode;
         // Tracks how much sellable allocation was debited per order escrow, by node.
