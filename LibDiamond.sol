@@ -133,30 +133,17 @@ library LibDiamond {
                 oldFacetAddress != address(0),
                 'LibDiamond: Selector not found'
             );
-            // replace the facet address
-            ds.selectorToFacetAndPosition[selector].facetAddr = _facetAddress;
+            if (oldFacetAddress == _facetAddress) {
+                continue;
+            }
             // remove the selector from the old facet
-            bytes4[] storage oldFacetFunctionSelectors = ds.facetFunctionSelectors[oldFacetAddress];
-            for (uint256 i; i < oldFacetFunctionSelectors.length; i++) {
-                if (oldFacetFunctionSelectors[i] == selector) {
-                    oldFacetFunctionSelectors[i] = oldFacetFunctionSelectors[
-                        oldFacetFunctionSelectors.length - 1
-                    ];
-                    oldFacetFunctionSelectors.pop();
-                    break;
-                }
-            }
-            // H-01: Remove old facet from facetAddresses if no selectors remain
-            if (oldFacetFunctionSelectors.length == 0) {
-                for (uint256 j; j < ds.facetAddresses.length; j++) {
-                    if (ds.facetAddresses[j] == oldFacetAddress) {
-                        ds.facetAddresses[j] = ds.facetAddresses[ds.facetAddresses.length - 1];
-                        ds.facetAddresses.pop();
-                        break;
-                    }
-                }
-            }
+            removeSelectorFromFacet(ds, oldFacetAddress, selector);
             // add the selector to the new facet
+            uint16 nextSelectorPosition = uint16(ds.facetFunctionSelectors[_facetAddress].length);
+            ds.selectorToFacetAndPosition[selector] = FacetAndPosition({
+                facetAddr: _facetAddress,
+                selectorPos: nextSelectorPosition
+            });
             ds.facetFunctionSelectors[_facetAddress].push(selector);
         }
     }
@@ -178,25 +165,36 @@ library LibDiamond {
             // remove the selector
             delete ds.selectorToFacetAndPosition[selector];
             // remove the selector from the facet
-            bytes4[] storage selectorsForFacet = ds.facetFunctionSelectors[facetAddr];
-            for (uint256 i; i < selectorsForFacet.length; i++) {
-                if (selectorsForFacet[i] == selector) {
-                    selectorsForFacet[i] = selectorsForFacet[
-                        selectorsForFacet.length - 1
-                    ];
-                    selectorsForFacet.pop();
-                    break;
+            removeSelectorFromFacet(ds, facetAddr, selector);
+        }
+    }
+
+    function removeSelectorFromFacet(
+        DiamondStorage storage ds,
+        address _facetAddress,
+        bytes4 _selector
+    ) private {
+        bytes4[] storage selectorsForFacet = ds.facetFunctionSelectors[_facetAddress];
+        uint256 lastSelectorIndex = selectorsForFacet.length - 1;
+        for (uint256 i; i < selectorsForFacet.length; i++) {
+            if (selectorsForFacet[i] == _selector) {
+                if (i != lastSelectorIndex) {
+                    bytes4 movedSelector = selectorsForFacet[lastSelectorIndex];
+                    selectorsForFacet[i] = movedSelector;
+                    ds.selectorToFacetAndPosition[movedSelector].selectorPos = uint16(i);
                 }
+                selectorsForFacet.pop();
+                break;
             }
-            // if no more selectors for the facet, remove the facet
-            if (selectorsForFacet.length == 0) {
-                // remove the facet from the facetAddresses array
-                for (uint256 i; i < ds.facetAddresses.length; i++) {
-                    if (ds.facetAddresses[i] == facetAddr) {
-                        ds.facetAddresses[i] = ds.facetAddresses[ds.facetAddresses.length - 1];
-                        ds.facetAddresses.pop();
-                        break;
-                    }
+        }
+        // if no more selectors for the facet, remove the facet
+        if (selectorsForFacet.length == 0) {
+            // remove the facet from the facetAddresses array
+            for (uint256 i; i < ds.facetAddresses.length; i++) {
+                if (ds.facetAddresses[i] == _facetAddress) {
+                    ds.facetAddresses[i] = ds.facetAddresses[ds.facetAddresses.length - 1];
+                    ds.facetAddresses.pop();
+                    break;
                 }
             }
         }
