@@ -80,6 +80,7 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
     error InsufficientBalance();
     error ExceedsCustodyAmount();
     error ExceedsNodeSellableAmount();
+    error NodeHashRequired();
     error NoCustodian();
     error DifferentCustodian(); // DEPRECATED: multi-custodian model now allows different minters
     error CannotRedeemOwnCustody();
@@ -353,6 +354,7 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
 
         // Track per-node custody for multi-node wallets
         if (mintingNodeHash != bytes32(0)) {
+            _trackNodeCustodyToken(s, mintingNodeHash, tokenID);
             s.tokenNodeCustodyAmounts[tokenID][mintingNodeHash] += amount;
             _creditOwnerNodeSellable(s, account, tokenID, mintingNodeHash, amount);
         }
@@ -403,6 +405,8 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
      * @notice Redeem tokens - burns the tokens and releases them from custody
      * @dev This triggers physical delivery by the custodian node.
      *      The redeemer specifies which custodian to release from.
+     *      When that custodian owns multiple nodes, sellable amounts are
+     *      consumed across only that custodian's nodes in tracked order.
      * @param tokenId The token ID to redeem
      * @param amount The amount to redeem
      * @param custodian The custodian node to release custody from
@@ -414,7 +418,7 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
         if (custodian == address(0)) revert NoCustodian();
         if (msg.sender == custodian) revert CannotRedeemOwnCustody();
         if (s.tokenCustodianAmounts[tokenId][custodian] < amount) revert ExceedsCustodyAmount();
-        _debitOwnerSellable(s, msg.sender, tokenId, amount);
+        _debitOwnerSellableForCustodian(s, msg.sender, tokenId, amount, custodian);
 
         // Burn the tokens
         _burn(msg.sender, tokenId, amount);
@@ -558,12 +562,12 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
 
     /**
      * @notice Batch mint tokens (owner only)
-     * @dev C-02: Accepts optional nodeHash to attribute sellable amounts.
-     *      Pass bytes32(0) to mint without node attribution.
+     * @dev Requires valid nodeHash to attribute sellable amounts.
+     *      Does not establish custody.
      * @param to Recipient address
      * @param ids Token IDs to mint
      * @param amounts Amounts per token ID
-     * @param nodeHash Node to attribute sellable amounts to (bytes32(0) = none)
+     * @param nodeHash Valid node to attribute sellable amounts to
      * @param data Additional data for receiver
      */
     function mintBatch(
@@ -573,12 +577,16 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
         bytes32 nodeHash,
         bytes memory data
     ) external onlyOwner {
+        if (nodeHash == bytes32(0)) revert NodeHashRequired();
+
+        DiamondStorage.AppStorage storage s = DiamondStorage.appStorage();
+        DiamondStorage.Node storage node = s.nodes[nodeHash];
+        if (!node.active || !node.validNode) revert InvalidNode();
+
         _mintBatch(to, ids, amounts, data);
-        if (nodeHash != bytes32(0)) {
-            DiamondStorage.AppStorage storage s = DiamondStorage.appStorage();
-            for (uint256 i = 0; i < ids.length; i++) {
-                _creditOwnerNodeSellable(s, to, ids[i], nodeHash, amounts[i]);
-            }
+
+        for (uint256 i = 0; i < ids.length; i++) {
+            _creditOwnerNodeSellable(s, to, ids[i], nodeHash, amounts[i]);
         }
     }
 
@@ -707,7 +715,7 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
         string memory _name,
         string memory _assetClass,
         string[] memory _attributes
-    ) external returns (bytes32 assetHash) {
+    ) external onlyOwner returns (bytes32 assetHash) {
         DiamondStorage.AppStorage storage s = DiamondStorage.appStorage();
         require(s.supportedClasses[_assetClass], 'Class not supported');
 
@@ -915,6 +923,19 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
         s.ownerNodeSellableAmounts[owner][tokenId][nodeHash] += amount;
     }
 
+    function _trackNodeCustodyToken(
+        DiamondStorage.AppStorage storage s,
+        bytes32 nodeHash,
+        uint256 tokenId
+    ) internal {
+        if (nodeHash == bytes32(0) || s.nodeHasCustodyToken[nodeHash][tokenId]) {
+            return;
+        }
+
+        s.nodeHasCustodyToken[nodeHash][tokenId] = true;
+        s.nodeCustodyTokenIds[nodeHash].push(tokenId);
+    }
+
     function _moveOwnerNodeSellable(
         DiamondStorage.AppStorage storage s,
         address from,
@@ -959,6 +980,36 @@ contract AssetsFacet is IERC1155, IERC1155MetadataURI {
 
             uint256 debited = nodeAmount > remaining ? remaining : nodeAmount;
             s.ownerNodeSellableAmounts[owner][tokenId][nodeHash] -= debited;
+            remaining -= debited;
+        }
+
+        if (remaining > 0) revert ExceedsNodeSellableAmount();
+    }
+
+    function _debitOwnerSellableForCustodian(
+        DiamondStorage.AppStorage storage s,
+        address owner,
+        uint256 tokenId,
+        uint256 amount,
+        address custodian
+    ) internal {
+        bytes32[] storage trackedNodes = s.ownerTokenSellableNodes[owner][tokenId];
+        uint256 remaining = amount;
+
+        for (uint256 i = 0; i < trackedNodes.length && remaining > 0; i++) {
+            bytes32 nodeHash = trackedNodes[i];
+            if (s.nodes[nodeHash].owner != custodian) continue;
+
+            uint256 nodeAmount = s.ownerNodeSellableAmounts[owner][tokenId][nodeHash];
+            if (nodeAmount == 0) continue;
+
+            uint256 debited = nodeAmount > remaining ? remaining : nodeAmount;
+            if (s.tokenNodeCustodyAmounts[tokenId][nodeHash] < debited) {
+                revert ExceedsCustodyAmount();
+            }
+
+            s.ownerNodeSellableAmounts[owner][tokenId][nodeHash] -= debited;
+            s.tokenNodeCustodyAmounts[tokenId][nodeHash] -= debited;
             remaining -= debited;
         }
 

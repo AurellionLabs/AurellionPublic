@@ -286,6 +286,7 @@ contract NodesFacet is Initializable, DiamondReentrancyGuard {
         require(s.nodes[_node].owner == msg.sender, 'Not node owner');
 
         address oldOwner = s.nodes[_node].owner;
+        _migrateIndexedNodeCustody(s, _node, oldOwner, _owner);
         s.nodes[_node].owner = _owner;
 
         // Update owner nodes mapping
@@ -303,6 +304,54 @@ contract NodesFacet is Initializable, DiamondReentrancyGuard {
         s.ownerNodes[_owner].push(_node);
 
         emit UpdateOwner(_owner, _node);
+    }
+
+    /**
+     * @notice Backfill custody token IDs for legacy nodes with existing per-node custody
+     * @dev Owner-only repair helper for state created before node custody indexing existed
+     */
+    function backfillNodeCustodyTokens(bytes32 nodeHash, uint256[] calldata tokenIds) external {
+        LibDiamond.enforceIsContractOwner();
+        DiamondStorage.AppStorage storage s = DiamondStorage.appStorage();
+        uint256 tokenCount = tokenIds.length;
+
+        for (uint256 i = 0; i < tokenCount; i++) {
+            uint256 tokenId = tokenIds[i];
+            if (s.tokenNodeCustodyAmounts[tokenId][nodeHash] == 0) continue;
+            _trackNodeCustodyToken(s, nodeHash, tokenId);
+        }
+    }
+
+    /**
+     * @notice Repair wallet-level custody balances after a legacy node ownership transfer
+     * @dev Owner-only helper. Moves listed token custody from previousOwner to current node owner.
+     */
+    function repairNodeCustodianBalances(
+        bytes32 nodeHash,
+        address previousOwner,
+        uint256[] calldata tokenIds
+    ) external {
+        LibDiamond.enforceIsContractOwner();
+        DiamondStorage.AppStorage storage s = DiamondStorage.appStorage();
+        address currentOwner = s.nodes[nodeHash].owner;
+        uint256 tokenCount = tokenIds.length;
+
+        for (uint256 i = 0; i < tokenCount; i++) {
+            uint256 tokenId = tokenIds[i];
+            uint256 nodeAmount = s.tokenNodeCustodyAmounts[tokenId][nodeHash];
+            if (nodeAmount == 0) continue;
+
+            _trackNodeCustodyToken(s, nodeHash, tokenId);
+            if (previousOwner == currentOwner) continue;
+
+            require(
+                s.tokenCustodianAmounts[tokenId][previousOwner] >= nodeAmount,
+                'Custody migration mismatch'
+            );
+
+            s.tokenCustodianAmounts[tokenId][previousOwner] -= nodeAmount;
+            s.tokenCustodianAmounts[tokenId][currentOwner] += nodeAmount;
+        }
     }
 
     function updateNodeStatus(bytes1 _status, bytes32 _node) external {
@@ -761,6 +810,45 @@ contract NodesFacet is Initializable, DiamondReentrancyGuard {
         }
 
         s.ownerNodeSellableAmounts[owner][tokenId][nodeHash] += amount;
+    }
+
+    function _trackNodeCustodyToken(
+        DiamondStorage.AppStorage storage s,
+        bytes32 nodeHash,
+        uint256 tokenId
+    ) internal {
+        if (nodeHash == bytes32(0) || s.nodeHasCustodyToken[nodeHash][tokenId]) {
+            return;
+        }
+
+        s.nodeHasCustodyToken[nodeHash][tokenId] = true;
+        s.nodeCustodyTokenIds[nodeHash].push(tokenId);
+    }
+
+    function _migrateIndexedNodeCustody(
+        DiamondStorage.AppStorage storage s,
+        bytes32 nodeHash,
+        address fromOwner,
+        address toOwner
+    ) internal {
+        if (fromOwner == toOwner) return;
+
+        uint256[] storage custodyTokenIds = s.nodeCustodyTokenIds[nodeHash];
+        uint256 tokenCount = custodyTokenIds.length;
+
+        for (uint256 i = 0; i < tokenCount; i++) {
+            uint256 tokenId = custodyTokenIds[i];
+            uint256 nodeAmount = s.tokenNodeCustodyAmounts[tokenId][nodeHash];
+            if (nodeAmount == 0) continue;
+
+            require(
+                s.tokenCustodianAmounts[tokenId][fromOwner] >= nodeAmount,
+                'Custody migration mismatch'
+            );
+
+            s.tokenCustodianAmounts[tokenId][fromOwner] -= nodeAmount;
+            s.tokenCustodianAmounts[tokenId][toOwner] += nodeAmount;
+        }
     }
 
     /**

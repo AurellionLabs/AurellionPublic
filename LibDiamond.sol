@@ -133,9 +133,10 @@ library LibDiamond {
                 oldFacetAddress != address(0),
                 'LibDiamond: Selector not found'
             );
-            if (oldFacetAddress == _facetAddress) {
-                continue;
-            }
+            require(
+                oldFacetAddress != _facetAddress,
+                'LibDiamond: Replace facet address is same as old facet address'
+            );
             // remove the selector from the old facet
             removeSelectorFromFacet(ds, oldFacetAddress, selector);
             // add the selector to the new facet
