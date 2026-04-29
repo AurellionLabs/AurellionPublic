@@ -520,8 +520,11 @@ contract AuSysFacet is DiamondReentrancyGuard {
         // Validate offer exists
         if (order.id == bytes32(0)) revert OfferNotFound();
         
-        // Validate offer is still open (status 0)
-        if (order.currentStatus != OrderStatus.AUSYS_CREATED) revert OfferNotOpen();
+        // Allow creator to recover escrow from open or pruned-expired offers
+        if (
+            order.currentStatus != OrderStatus.AUSYS_CREATED &&
+            order.currentStatus != OrderStatus.AUSYS_EXPIRED
+        ) revert OfferNotOpen();
         
         // Only creator can cancel
         address creator = order.isSellerInitiated ? order.seller : order.buyer;
@@ -582,6 +585,7 @@ contract AuSysFacet is DiamondReentrancyGuard {
             DiamondStorage.AuSysOrder storage order = s.ausysOrders[id];
             if (order.expiresAt != 0 && block.timestamp > order.expiresAt) {
                 order.currentStatus = OrderStatus.AUSYS_EXPIRED;
+                emit AuSysOrderStatusUpdated(id, OrderStatus.AUSYS_EXPIRED);
                 s.openP2POfferIds[i] = s.openP2POfferIds[length - 1];
                 s.openP2POfferIds.pop();
                 length--;
@@ -1192,9 +1196,23 @@ contract AuSysFacet is DiamondReentrancyGuard {
         bytes32 nodeHash,
         uint256 quantity
     ) internal {
+        _trackNodeCustodyToken(s, nodeHash, tokenId);
         s.tokenCustodianAmounts[tokenId][nodeOwner] += quantity;
         s.tokenNodeCustodyAmounts[tokenId][nodeHash] += quantity;
         // tokenCustodyAmount (global total) is unchanged: custody transferred, not created.
+    }
+
+    function _trackNodeCustodyToken(
+        DiamondStorage.AppStorage storage s,
+        bytes32 nodeHash,
+        uint256 tokenId
+    ) internal {
+        if (nodeHash == bytes32(0) || s.nodeHasCustodyToken[nodeHash][tokenId]) {
+            return;
+        }
+
+        s.nodeHasCustodyToken[nodeHash][tokenId] = true;
+        s.nodeCustodyTokenIds[nodeHash].push(tokenId);
     }
 
     function _creditOwnerNodeSellable(

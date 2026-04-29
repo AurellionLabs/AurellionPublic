@@ -294,8 +294,14 @@ library DiamondStorage {
         mapping(address => bool) acceptedTokenContracts;
         bool erc1155WhitelistEnabled;
 
+        // ======= NODE CUSTODY INDEX =======
+        // Historical token IDs that have had custody attributed to a node.
+        // Used to migrate wallet-level custody on node ownership transfer.
+        mapping(bytes32 => uint256[]) nodeCustodyTokenIds;
+        mapping(bytes32 => mapping(uint256 => bool)) nodeHasCustodyToken;
+
         // ======= RESERVED =======
-        uint256[46] __reserved1;
+        uint256[44] __reserved1;
         mapping(bytes32 => uint256) __reserved2;
     }
     
