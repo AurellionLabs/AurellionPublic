@@ -1345,10 +1345,10 @@ contract NodesFacet is Initializable, DiamondReentrancyGuard {
     // ============================================================================
 
     /**
-     * @notice Check if a URL points to immutable storage (IPFS/Arweave)
+     * @notice Check if a URL uses an immutable storage scheme
      * @dev Internal helper to auto-detect frozen content
      * @param url The URL to check
-     * @return True if URL points to immutable storage
+     * @return True if URL uses a recognized immutable storage scheme
      */
     function _isUrlFrozen(string memory url) internal pure returns (bool) {
         bytes memory urlBytes = bytes(url);
@@ -1369,26 +1369,13 @@ contract NodesFacet is Initializable, DiamondReentrancyGuard {
                 return true;
             }
         }
-        
-        // Check for arweave.net (11 chars minimum: arweave.net)
-        if (len >= 11) {
-            // Search for "arweave.net" in the URL
-            for (uint256 i = 0; i <= len - 11; i++) {
-                if (urlBytes[i] == 'a' && urlBytes[i+1] == 'r' && urlBytes[i+2] == 'w' &&
-                    urlBytes[i+3] == 'e' && urlBytes[i+4] == 'a' && urlBytes[i+5] == 'v' &&
-                    urlBytes[i+6] == 'e' && urlBytes[i+7] == '.' && urlBytes[i+8] == 'n' &&
-                    urlBytes[i+9] == 'e' && urlBytes[i+10] == 't') {
-                    return true;
-                }
-            }
-        }
-        
+
         return false;
     }
 
     /**
      * @notice Add a supporting document to a node
-     * @dev Auto-detects if URL points to immutable storage
+     * @dev Auto-detects if URL uses an immutable storage scheme
      * @param _nodeHash The node hash to add document to
      * @param _url The URL of the document
      * @param _title The title of the document
@@ -1408,7 +1395,7 @@ contract NodesFacet is Initializable, DiamondReentrancyGuard {
         require(bytes(_url).length > 0, 'URL required');
         require(bytes(_title).length > 0, 'Title required');
 
-        // Auto-detect if URL is frozen (IPFS/Arweave)
+        // Auto-detect if URL uses an immutable storage scheme.
         isFrozen = _isUrlFrozen(_url);
 
         // Get next document ID

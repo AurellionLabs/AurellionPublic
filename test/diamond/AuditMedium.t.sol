@@ -138,6 +138,23 @@ contract AuditMediumTest is DiamondTestBase {
         );
     }
 
+    function test_NFT04M_addSupportingDocument_doesNotTreatArweaveSubstringAsFrozen() public {
+        vm.prank(user2);
+        bool isFrozen = nodes.addSupportingDocument(
+            sellerNode,
+            "https://evil.example/?q=arweave.net",
+            "Audit report",
+            "Mutable URL with spoofed arweave substring",
+            "audit"
+        );
+
+        assertFalse(isFrozen, "spoofed arweave substring should not mark document frozen");
+
+        DiamondStorage.SupportingDocument[] memory documents = nodes.getSupportingDocuments(sellerNode);
+        assertEq(documents.length, 1, "supporting document not stored");
+        assertFalse(documents[0].isFrozen, "stored supporting document should not be frozen");
+    }
+
     function _createSellerOffer(uint256 expiresAt, uint256 quantity) internal returns (bytes32) {
         bytes32[] memory journeyIds;
         address[] memory orderNodes;
