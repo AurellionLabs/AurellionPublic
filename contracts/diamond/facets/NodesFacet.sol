@@ -623,6 +623,8 @@ contract NodesFacet is Initializable, DiamondReentrancyGuard {
         require(s.nodes[_node].owner == msg.sender, 'Not node owner');
         require(s.auraAssetAddress != address(0), 'AuraAsset not set');
         require(_amount > 0, 'Amount must be positive');
+        require(_price <= type(uint96).max, 'Price exceeds uint96 max');
+        require(_amount <= type(uint96).max, 'Amount exceeds uint96 max');
         require(s.nodeTokenBalances[_node][_tokenId] >= _amount, 'Insufficient node balance - deposit tokens first');
 
         // Debit node's internal balance (H-05: use internal helper)
