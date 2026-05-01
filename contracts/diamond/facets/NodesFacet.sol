@@ -956,13 +956,14 @@ contract NodesFacet is Initializable, DiamondReentrancyGuard {
     }
 
     /**
-     * @notice Check if Diamond's actual ERC1155 balance matches sum of all node balances
-     * @dev Useful for auditing/verification
+     * @notice Check if Diamond's actual ERC1155 balance matches the sum of provided node balances
+     * @dev Useful for auditing/verification when the caller supplies the complete node set.
+     *      The provided node hashes must be unique and strictly ascending.
      * @param _tokenId The ERC1155 token ID to check
-     * @param _nodeHashes Array of node hashes to sum
+     * @param _nodeHashes Array of node hashes to sum, sorted in strictly ascending order
      * @return diamondBalance The Diamond's actual ERC1155 balance
-     * @return sumNodeBalances Sum of all specified nodes' internal balances
-     * @return isBalanced Whether they match
+     * @return sumNodeBalances Sum of the specified nodes' internal balances
+     * @return isBalanced Whether they match exactly
      */
     function verifyTokenAccounting(
         uint256 _tokenId,
@@ -978,10 +979,13 @@ contract NodesFacet is Initializable, DiamondReentrancyGuard {
         diamondBalance = IERC1155(s.auraAssetAddress).balanceOf(address(this), _tokenId);
         
         for (uint256 i = 0; i < _nodeHashes.length; i++) {
+            if (i > 0) {
+                require(_nodeHashes[i - 1] < _nodeHashes[i], 'Node hashes must be strictly ascending');
+            }
             sumNodeBalances += s.nodeTokenBalances[_nodeHashes[i]][_tokenId];
         }
         
-        isBalanced = (diamondBalance >= sumNodeBalances);
+        isBalanced = (diamondBalance == sumNodeBalances);
         
         return (diamondBalance, sumNodeBalances, isBalanced);
     }

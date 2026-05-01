@@ -129,6 +129,76 @@ contract NodesFacetTest is DiamondTestBase {
         assertEq(capacity, 77, "capacity changed after overflow revert");
     }
 
+    function test_verifyTokenAccounting_returnsTrueForExactMatchWithSortedUniqueHashes() public {
+        (uint256 tokenId, bytes32 lowerNode, bytes32 higherNode) = _createSplitNodeInventory();
+        bytes32[] memory nodeHashes = new bytes32[](2);
+        nodeHashes[0] = lowerNode;
+        nodeHashes[1] = higherNode;
+
+        (uint256 diamondBalance, uint256 sumNodeBalances, bool isBalanced) =
+            nodes.verifyTokenAccounting(tokenId, nodeHashes);
+
+        assertEq(diamondBalance, 100, "diamond balance mismatch");
+        assertEq(sumNodeBalances, 100, "node sum mismatch");
+        assertTrue(isBalanced, "exactly matched accounting should be balanced");
+    }
+
+    function test_verifyTokenAccounting_revertsForDuplicateNodeHashes() public {
+        (uint256 tokenId, bytes32 lowerNode,) = _createSplitNodeInventory();
+        bytes32[] memory nodeHashes = new bytes32[](2);
+        nodeHashes[0] = lowerNode;
+        nodeHashes[1] = lowerNode;
+
+        vm.expectRevert("Node hashes must be strictly ascending");
+        nodes.verifyTokenAccounting(tokenId, nodeHashes);
+    }
+
+    function test_verifyTokenAccounting_revertsForUnsortedNodeHashes() public {
+        (uint256 tokenId, bytes32 lowerNode, bytes32 higherNode) = _createSplitNodeInventory();
+        bytes32[] memory nodeHashes = new bytes32[](2);
+        nodeHashes[0] = higherNode;
+        nodeHashes[1] = lowerNode;
+
+        vm.expectRevert("Node hashes must be strictly ascending");
+        nodes.verifyTokenAccounting(tokenId, nodeHashes);
+    }
+
+    function test_verifyTokenAccounting_returnsFalseForPartialNodeSet() public {
+        (uint256 tokenId, bytes32 lowerNode,) = _createSplitNodeInventory();
+        bytes32[] memory nodeHashes = new bytes32[](1);
+        nodeHashes[0] = lowerNode;
+        uint256 expectedPartialSum = nodes.getNodeTokenBalance(lowerNode, tokenId);
+
+        (uint256 diamondBalance, uint256 sumNodeBalances, bool isBalanced) =
+            nodes.verifyTokenAccounting(tokenId, nodeHashes);
+
+        assertEq(diamondBalance, 100, "diamond balance mismatch");
+        assertEq(sumNodeBalances, expectedPartialSum, "partial node sum mismatch");
+        assertFalse(isBalanced, "partial node set should not be balanced");
+    }
+
+    function test_verifyTokenAccounting_emptyHashesIsTrueOnlyForZeroDiamondBalance() public {
+        bytes32[] memory nodeHashes = new bytes32[](0);
+        (uint256 diamondBalance, uint256 sumNodeBalances, bool isBalanced) =
+            nodes.verifyTokenAccounting(123456, nodeHashes);
+
+        assertEq(diamondBalance, 0, "diamond balance should be zero");
+        assertEq(sumNodeBalances, 0, "node sum should be zero");
+        assertTrue(isBalanced, "zero balances should be balanced");
+    }
+
+    function test_verifyTokenAccounting_emptyHashesIsFalseForNonZeroDiamondBalance() public {
+        (uint256 tokenId,,) = _createSplitNodeInventory();
+        bytes32[] memory nodeHashes = new bytes32[](0);
+
+        (uint256 diamondBalance, uint256 sumNodeBalances, bool isBalanced) =
+            nodes.verifyTokenAccounting(tokenId, nodeHashes);
+
+        assertEq(diamondBalance, 100, "diamond balance mismatch");
+        assertEq(sumNodeBalances, 0, "empty node sum should be zero");
+        assertFalse(isBalanced, "non-zero diamond balance should not be balanced");
+    }
+
     function _installStateHarness() internal {
         StateHarnessFacet harness = new StateHarnessFacet();
         bytes4[] memory selectors = new bytes4[](1);
@@ -151,5 +221,32 @@ contract NodesFacetTest is DiamondTestBase {
     function _singleToken(uint256 tokenId) internal pure returns (uint256[] memory tokenIds) {
         tokenIds = new uint256[](1);
         tokenIds[0] = tokenId;
+    }
+
+    function _createSplitNodeInventory() internal returns (uint256 tokenId, bytes32 lowerNode, bytes32 higherNode) {
+        bytes32 user1Node = _registerTestNode(user1);
+        bytes32 user2Node = _registerTestNode(user2);
+        DiamondStorage.AssetDefinition memory assetDef = _createAssetDefinition("Audit Gold", "COMMODITY");
+
+        vm.prank(user1);
+        (, tokenId) = assets.nodeMintForNode(user1, assetDef, 60, "COMMODITY", "", user1Node);
+        vm.prank(user2);
+        assets.nodeMintForNode(user2, assetDef, 40, "COMMODITY", "", user2Node);
+
+        vm.prank(user1);
+        IERC1155(address(diamond)).setApprovalForAll(address(diamond), true);
+        vm.prank(user2);
+        IERC1155(address(diamond)).setApprovalForAll(address(diamond), true);
+
+        vm.prank(user1);
+        nodes.depositTokensToNode(user1Node, tokenId, 60);
+        vm.prank(user2);
+        nodes.depositTokensToNode(user2Node, tokenId, 40);
+
+        if (user1Node < user2Node) {
+            return (tokenId, user1Node, user2Node);
+        }
+
+        return (tokenId, user2Node, user1Node);
     }
 }
