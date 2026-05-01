@@ -199,6 +199,82 @@ contract NodesFacetTest is DiamondTestBase {
         assertFalse(isBalanced, "non-zero diamond balance should not be balanced");
     }
 
+    function test_addSupportingDocument_marksIpfsUrlAsFrozen() public {
+        bytes32 nodeHash = _registerTestNode(user1);
+
+        vm.prank(user1);
+        bool isFrozen = nodes.addSupportingDocument(
+            nodeHash,
+            "ipfs://bafybeigdyrzt5example",
+            "Spec",
+            "IPFS document",
+            "audit"
+        );
+
+        assertTrue(isFrozen, "ipfs URL should be frozen");
+
+        DiamondStorage.SupportingDocument[] memory documents = nodes.getSupportingDocuments(nodeHash);
+        assertEq(documents.length, 1, "document not stored");
+        assertTrue(documents[0].isFrozen, "stored document should be frozen");
+    }
+
+    function test_addSupportingDocument_marksArSchemeUrlAsFrozen() public {
+        bytes32 nodeHash = _registerTestNode(user1);
+
+        vm.prank(user1);
+        bool isFrozen = nodes.addSupportingDocument(
+            nodeHash,
+            "ar://a1b2c3d4e5f6",
+            "Receipt",
+            "Arweave document",
+            "certificate"
+        );
+
+        assertTrue(isFrozen, "ar URL should be frozen");
+
+        DiamondStorage.SupportingDocument[] memory documents = nodes.getSupportingDocuments(nodeHash);
+        assertEq(documents.length, 1, "document not stored");
+        assertTrue(documents[0].isFrozen, "stored document should be frozen");
+    }
+
+    function test_addSupportingDocument_doesNotFreezeArweaveSubstringInQuery() public {
+        bytes32 nodeHash = _registerTestNode(user1);
+
+        vm.prank(user1);
+        bool isFrozen = nodes.addSupportingDocument(
+            nodeHash,
+            "https://evil.example/?q=arweave.net",
+            "Report",
+            "Mutable URL with spoofed query",
+            "audit"
+        );
+
+        assertFalse(isFrozen, "query substring should not mark document frozen");
+
+        DiamondStorage.SupportingDocument[] memory documents = nodes.getSupportingDocuments(nodeHash);
+        assertEq(documents.length, 1, "document not stored");
+        assertFalse(documents[0].isFrozen, "stored document should not be frozen");
+    }
+
+    function test_addSupportingDocument_doesNotFreezeArweaveGatewayHttpUrl() public {
+        bytes32 nodeHash = _registerTestNode(user1);
+
+        vm.prank(user1);
+        bool isFrozen = nodes.addSupportingDocument(
+            nodeHash,
+            "https://arweave.net/txid123",
+            "Gateway",
+            "Gateway URL remains mutable",
+            "certificate"
+        );
+
+        assertFalse(isFrozen, "gateway URL should not be frozen");
+
+        DiamondStorage.SupportingDocument[] memory documents = nodes.getSupportingDocuments(nodeHash);
+        assertEq(documents.length, 1, "document not stored");
+        assertFalse(documents[0].isFrozen, "stored gateway document should not be frozen");
+    }
+
     function _installStateHarness() internal {
         StateHarnessFacet harness = new StateHarnessFacet();
         bytes4[] memory selectors = new bytes4[](1);
