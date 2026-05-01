@@ -5,6 +5,7 @@ import { DiamondTestBase } from "./helpers/DiamondTestBase.sol";
 import { AuSysFacet } from "contracts/diamond/facets/AuSysFacet.sol";
 import { AuSysViewFacet } from "contracts/diamond/facets/AuSysViewFacet.sol";
 import { AssetsFacet } from "contracts/diamond/facets/AssetsFacet.sol";
+import { NodesFacet } from "contracts/diamond/facets/NodesFacet.sol";
 import { DiamondStorage } from "contracts/diamond/libraries/DiamondStorage.sol";
 import { OrderStatus } from "contracts/diamond/libraries/OrderStatus.sol";
 import { IERC1155 } from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
@@ -13,6 +14,7 @@ contract AuditMediumTest is DiamondTestBase {
     AuSysFacet internal ausys;
     AuSysViewFacet internal ausysView;
     AssetsFacet internal assets;
+    NodesFacet internal nodes;
 
     bytes32 internal sellerNode;
     uint256 internal tokenId;
@@ -24,6 +26,7 @@ contract AuditMediumTest is DiamondTestBase {
         ausys = AuSysFacet(address(diamond));
         ausysView = AuSysViewFacet(address(diamond));
         assets = AssetsFacet(address(diamond));
+        nodes = NodesFacet(address(diamond));
 
         vm.startPrank(owner);
         assets.addSupportedClass("METAL");
@@ -81,6 +84,58 @@ contract AuditMediumTest is DiamondTestBase {
         );
         assertEq(ausysView.getOpenP2POffers().length, 0, "canceled offer still open");
         assertEq(ausysView.getUserP2POffers(user2).length, 0, "user offer index not cleaned");
+    }
+
+    function test_NFT03M_placeSellOrderFromNode_revertsWhenPriceExceedsUint96Max() public {
+        vm.prank(user2);
+        nodes.depositTokensToNode(sellerNode, tokenId, 10);
+
+        assertEq(nodes.getNodeTokenBalance(sellerNode, tokenId), 10, "precondition: node balance mismatch");
+
+        vm.expectRevert("Price exceeds uint96 max");
+        vm.prank(user2);
+        nodes.placeSellOrderFromNode(
+            sellerNode,
+            tokenId,
+            address(payToken),
+            uint256(type(uint96).max) + 1,
+            10
+        );
+
+        assertEq(nodes.getNodeTokenBalance(sellerNode, tokenId), 10, "node balance changed after price overflow revert");
+    }
+
+    function test_NFT03M_placeSellOrderFromNode_revertsWhenAmountExceedsUint96Max() public {
+        uint256 oversizedAmount = uint256(type(uint96).max) + 1;
+        DiamondStorage.AssetDefinition memory assetDef = _createAssetDefinition("Bulk Gold", "METAL");
+
+        vm.prank(user2);
+        (, uint256 largeTokenId) = assets.nodeMintForNode(user2, assetDef, oversizedAmount, "METAL", "", sellerNode);
+
+        vm.prank(user2);
+        nodes.depositTokensToNode(sellerNode, largeTokenId, oversizedAmount);
+
+        assertEq(
+            nodes.getNodeTokenBalance(sellerNode, largeTokenId),
+            oversizedAmount,
+            "precondition: oversized node balance mismatch"
+        );
+
+        vm.expectRevert("Amount exceeds uint96 max");
+        vm.prank(user2);
+        nodes.placeSellOrderFromNode(
+            sellerNode,
+            largeTokenId,
+            address(payToken),
+            1,
+            oversizedAmount
+        );
+
+        assertEq(
+            nodes.getNodeTokenBalance(sellerNode, largeTokenId),
+            oversizedAmount,
+            "node balance changed after amount overflow revert"
+        );
     }
 
     function _createSellerOffer(uint256 expiresAt, uint256 quantity) internal returns (bytes32) {
