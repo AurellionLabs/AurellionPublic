@@ -368,12 +368,11 @@ contract NodesFacet is Initializable, DiamondReentrancyGuard {
         DiamondStorage.AppStorage storage s = DiamondStorage.appStorage();
         require(s.nodes[_node].owner == msg.sender, 'Not node owner');
 
-        // Use unchecked math for gas savings - sum of uint256 array elements can't overflow
+        // Recompute capacity from provided quantities and fail on overflow.
         uint256 newCapacity = 0;
-        unchecked {
-            for (uint256 i = 0; i < _quantities.length; i++) {
-                newCapacity += _quantities[i];
-            }
+        for (uint256 i = 0; i < _quantities.length; i++) {
+            require(newCapacity <= type(uint256).max - _quantities[i], 'Capacity overflow');
+            newCapacity += _quantities[i];
         }
         s.nodes[_node].capacity = newCapacity;
 

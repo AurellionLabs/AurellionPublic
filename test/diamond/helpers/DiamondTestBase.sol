@@ -193,7 +193,7 @@ abstract contract DiamondTestBase is Test {
     }
 
     function _nodesSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](18);
+        selectors = new bytes4[](19);
         selectors[0] = NodesFacet.initialize.selector;
         selectors[1] = NodesFacet.registerNode.selector;
         selectors[2] = NodesFacet.updateNode.selector;
@@ -212,6 +212,7 @@ abstract contract DiamondTestBase is Test {
         selectors[15] = NodesFacet.verifyTokenAccounting.selector;
         selectors[16] = NodesFacet.backfillNodeCustodyTokens.selector;
         selectors[17] = NodesFacet.repairNodeCustodianBalances.selector;
+        selectors[18] = NodesFacet.updateNodeCapacity.selector;
     }
 
     function _assetsSelectors() internal pure returns (bytes4[] memory selectors) {

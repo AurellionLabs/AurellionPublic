@@ -98,6 +98,37 @@ contract NodesFacetTest is DiamondTestBase {
         assertEq(assets.getNodeSellableAmount(user1, tokenId, nodeHash), 40, "sellable not restored");
     }
 
+    function test_updateNodeCapacity_setsSummedCapacity() public {
+        bytes32 nodeHash = _registerTestNode(user1);
+        uint256[] memory quantities = new uint256[](3);
+        quantities[0] = 10;
+        quantities[1] = 20;
+        quantities[2] = 30;
+
+        vm.prank(user1);
+        nodes.updateNodeCapacity(nodeHash, quantities);
+
+        (, , uint256 capacity, , , , , , , ) = nodes.getNode(nodeHash);
+        assertEq(capacity, 60, "node capacity not updated to sum");
+    }
+
+    function test_updateNodeCapacity_revertsOnOverflow() public {
+        bytes32 nodeHash = _registerTestNode(user1);
+        uint256[] memory quantities = new uint256[](2);
+        quantities[0] = type(uint256).max;
+        quantities[1] = 1;
+
+        vm.prank(user1);
+        nodes.updateNode(nodeHash, "LOGISTICS", 77);
+
+        vm.expectRevert("Capacity overflow");
+        vm.prank(user1);
+        nodes.updateNodeCapacity(nodeHash, quantities);
+
+        (, , uint256 capacity, , , , , , , ) = nodes.getNode(nodeHash);
+        assertEq(capacity, 77, "capacity changed after overflow revert");
+    }
+
     function _installStateHarness() internal {
         StateHarnessFacet harness = new StateHarnessFacet();
         bytes4[] memory selectors = new bytes4[](1);
